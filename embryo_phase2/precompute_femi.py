@@ -74,7 +74,7 @@ def main():
     encoder.eval()
 
     for pid in tqdm(patient_list, desc="Precompute FEMI"):
-        image_paths, T = get_patient_image_paths(pid, padded_csv_dir, images_root, stage_names)
+        image_paths, T, _ = get_patient_image_paths(pid, padded_csv_dir, images_root, stage_names)
         if T == 0:
             continue
         # Run same encoder as training: one sample (batch=1), list of T paths

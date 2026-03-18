@@ -42,8 +42,9 @@ splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_
 
 # Class weights (same scheme as Phase 1)
 use_class_weights: "inverse"
-class_weight_min: 1
-class_weight_max: 1
+# Clamp weights so inverse weighting has effect; set both to 1 to disable weighting
+class_weight_min: 0.8
+class_weight_max: 1.5
 exclude_tHB_from_eval: true
 num_ddim_seeds: 3
 
@@ -86,8 +87,8 @@ loss_weights:
 # Loss configuration (defaults reproduce original setting)
 loss_config:
   ce_type: "focal"        # "original" or "focal"
-  focal_gamma: 2.0
-  ordinal_loss_weight: 0.2   # >0 to add ordinal loss on stage index
+  focal_gamma: 1.0
+  ordinal_loss_weight: 0.1   # >0 to add ordinal loss on stage index
 
 # lr_scheduler:
 #   type: "ReduceLROnPlateau"
@@ -101,6 +102,6 @@ lr_scheduler:
   eta_min: 1.0e-6   # minimum LR at the end of the cosine
 
 # Output
-result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_without_class_weights_ordinal_loss_dropout_0.3"
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_time_plus_custom_encoder"
 naming: "phase2_time_plus_femi"
 

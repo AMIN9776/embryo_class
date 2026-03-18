@@ -89,14 +89,15 @@ def get_patient_image_paths(
     padded_csv_dir: Path,
     images_root: Path,
     stage_names: list[str],
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, np.ndarray]:
     """
     Build image_paths (length T) for one patient, same logic as dataset.
-    Returns (image_paths, T). Invalid timesteps get "".
+    Returns (image_paths, T, time_q). time_q is (T,) time_hours_quantized (NaN where missing).
+    Invalid timesteps get "" in image_paths.
     """
     csv_path = Path(padded_csv_dir) / f"{pid}_reference_padded.csv"
     if not csv_path.exists():
-        return [], 0
+        return [], 0, np.array([], dtype=np.float32)
     frame_idx, time_q, stages, valid = load_padded_csv_with_frame(csv_path, stage_names)
     T = frame_idx.shape[0]
     frame2img = build_frame_to_image_map(Path(images_root), pid)
@@ -131,7 +132,7 @@ def get_patient_image_paths(
             image_paths[t] = base_paths[k_best]
         else:
             image_paths[t] = ""
-    return image_paths, T
+    return image_paths, T, time_q
 
 
 class EmbryoPhase2Dataset(Dataset):

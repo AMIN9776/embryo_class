@@ -355,4 +355,3 @@ stage_names:
 - **`dataset.py`**, **`utils.py`**, **`default_configs.py`**: Used by the legacy pipeline; embryo phases use their own configs and datasets under `embryo_phase1/` and `embryo_phase2/`.
 
 The embryo pipeline does **not** require running `main.py`; use the phase-specific train/eval scripts and configs above.
-# embryo_class

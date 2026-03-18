@@ -3,6 +3,7 @@ Embryo Phase2 diffusion model: time + visual features (FEMI or custom encoder) a
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import torch
@@ -34,10 +35,11 @@ class VisualEncoderFEMI(nn.Module):
         hidden_dim = self.femi.config.hidden_size
         self.proj = nn.Conv1d(hidden_dim, proj_dim, 1)
 
-    def forward(self, images: list[list[str]], target_T: int) -> torch.Tensor:
+    def forward(self, images: list[list[str]], target_T: int, **kwargs: Any) -> torch.Tensor:
         """
         images: list of length B; each element is a list of image paths (len may equal target_T).
         target_T: desired temporal length (number of timesteps from padded CSV).
+        **kwargs: ignored (e.g. time_series for custom encoder).
         Returns: (B, proj_dim, target_T)
         """
         # Normalize shapes coming from DataLoader:
@@ -129,10 +131,17 @@ class VisualEncoderCustom(nn.Module):
         else:
             self.proj = None
 
-    def forward(self, images: list[list[str]], target_T: int) -> torch.Tensor:
+    def forward(
+        self,
+        images: list[list[str]],
+        target_T: int,
+        time_series: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         images: list of length B; each element is a list of image paths (len may equal target_T).
         target_T: desired temporal length.
+        time_series: (B, 1, T) or (B, T) — actual time in hours per frame for FiLM. If None, use zeros
+            (pretrained FiLM was trained with hours; 0–1 frame index would break conditioning).
         Returns: (B, output_dim, target_T)
         """
         if not images:
@@ -165,8 +174,19 @@ class VisualEncoderCustom(nn.Module):
             return torch.zeros(B, self.output_dim, target_T, device=self.device)
         x = torch.stack(flat_imgs, dim=0).to(self.device)
         x = normalize_tf(x)
-        T_f = max(target_T - 1, 1)
-        time_h = torch.tensor([t / T_f for _, t in flat_indices], dtype=torch.float32, device=self.device)
+        # Use actual hours when provided; else zeros (avoid 0–1 frame index which breaks FiLM)
+        if time_series is not None:
+            ts = time_series.to(self.device)
+            if ts.dim() == 3:
+                ts = ts.squeeze(1)
+            # ts (B, T); for each (b, t) in flat_indices get ts[b, t]
+            time_h = torch.tensor(
+                [float(ts[b, t].item()) if not math.isnan(ts[b, t].item()) else 0.0 for (b, t) in flat_indices],
+                dtype=torch.float32,
+                device=self.device,
+            )
+        else:
+            time_h = torch.zeros(len(flat_indices), dtype=torch.float32, device=self.device)
         with torch.no_grad():
             emb, _, _ = self.encoder(x, time_h)
         # emb: (N, 128)
@@ -199,6 +219,7 @@ class EmbryoPhase2Diffusion(nn.Module):
         femi_model_name: str = "ihlab/FEMI",
         femi_freeze: bool = True,
         custom_encoder_checkpoint: str | Path | None = None,
+        fusion_dim: int | None = None,
     ):
         super().__init__()
         self.device = device
@@ -222,7 +243,11 @@ class EmbryoPhase2Diffusion(nn.Module):
         posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
         self.register_buffer("posterior_variance", posterior_variance)
 
-        # Encoders and fusion
+        # Encoders and fusion (fusion_dim from config; fallback to decoder_params or time_encoder_output_dim)
+        if fusion_dim is None:
+            fusion_dim = int(decoder_params.get("input_dim", time_encoder_output_dim))
+        self.fusion = nn.Conv1d(time_encoder_output_dim + visual_feature_dim, fusion_dim, kernel_size=1)
+
         self.time_encoder = TimeEncoder(time_encoder_output_dim)
         enc_type = (visual_encoder_type or "femi").lower()
         if enc_type == "custom" and custom_encoder_checkpoint:
@@ -239,8 +264,6 @@ class EmbryoPhase2Diffusion(nn.Module):
                 freeze=femi_freeze,
                 device=device,
             )
-        fusion_dim = decoder_params.get("input_dim", time_encoder_output_dim)
-        self.fusion = nn.Conv1d(time_encoder_output_dim + visual_feature_dim, fusion_dim, kernel_size=1)
 
         decoder_params = dict(decoder_params)
         decoder_params["input_dim"] = fusion_dim
@@ -267,8 +290,9 @@ class EmbryoPhase2Diffusion(nn.Module):
         noise = torch.randn_like(event_gt, device=self.device)
         noise = noise * valid_mask
         x_start = event_gt * valid_mask
-        x_start = (x_start * 2.0 - 1.0) * self.scale
-        x = self.q_sample(x_start=x_start, t=t, noise=noise)
+        x_start_scaled = (x_start * 2.0 - 1.0) * self.scale
+        x_start_scaled = x_start_scaled * valid_mask  # re-zero invalid frames after scaling
+        x = self.q_sample(x_start=x_start_scaled, t=t, noise=noise)
         x = torch.clamp(x, min=-self.scale, max=self.scale)
         event_diffused = (x / self.scale + 1.0) / 2.0
         return event_diffused, noise, t
@@ -304,7 +328,9 @@ class EmbryoPhase2Diffusion(nn.Module):
             if vis_feats.shape[-1] != T:
                 vis_feats = F.interpolate(vis_feats, size=T, mode="linear", align_corners=False)
         else:
-            vis_feats = self.visual_encoder(images=image_paths_or_vis, target_T=T)  # (B, D_v, T)
+            vis_feats = self.visual_encoder(
+                images=image_paths_or_vis, target_T=T, time_series=time_series
+            )  # (B, D_v, T)
 
         # Debug: print shapes once to understand mismatch
         if not hasattr(self, "_debug_shapes_printed"):
@@ -325,6 +351,7 @@ class EmbryoPhase2Diffusion(nn.Module):
 
     def model_predictions(self, cond_feats: torch.Tensor, x: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x_m = torch.clamp(x, min=-self.scale, max=self.scale)
+        assert x_m.min().item() >= -self.scale - 1e-5 and x_m.max().item() <= self.scale + 1e-5, "x_m out of expected range"
         x_m = denormalize(x_m, self.scale)
         x_start = self.decoder(cond_feats, t, x_m.float())
         x_start = F.softmax(x_start, 1)
@@ -409,6 +436,8 @@ class EmbryoPhase2Diffusion(nn.Module):
             x_return = x_start.clone()
             if time_next < 0:
                 x_time = x_start
+                if valid_mask is not None:
+                    x_time = x_time * valid_mask
                 continue
             alpha = self.alphas_cumprod[time]
             alpha_next = self.alphas_cumprod[time_next]
@@ -418,6 +447,8 @@ class EmbryoPhase2Diffusion(nn.Module):
             if sigma > 0:
                 x_time = x_time + sigma * torch.randn_like(x_time, device=self.device)
             x_time = torch.clamp(x_time, min=-self.scale, max=self.scale)
+            if valid_mask is not None:
+                x_time = x_time * valid_mask  # re-zero invalid frames each step
         x_return = denormalize(x_return, self.scale)
         if valid_mask is not None:
             x_return = x_return * valid_mask

@@ -98,8 +98,9 @@ class EmbryoPhase1Diffusion(nn.Module):
         noise = torch.randn_like(event_gt, device=self.device)
         noise = noise * valid_mask
         x_start = event_gt * valid_mask
-        x_start = (x_start * 2.0 - 1.0) * self.scale
-        x = self.q_sample(x_start=x_start, t=t, noise=noise)
+        x_start_scaled = (x_start * 2.0 - 1.0) * self.scale
+        x_start_scaled = x_start_scaled * valid_mask  # re-zero invalid frames after scaling
+        x = self.q_sample(x_start=x_start_scaled, t=t, noise=noise)
         x = torch.clamp(x, min=-self.scale, max=self.scale)
         event_diffused = (x / self.scale + 1.0) / 2.0
         return event_diffused, noise, t
@@ -109,6 +110,7 @@ class EmbryoPhase1Diffusion(nn.Module):
 
     def model_predictions(self, time_feats: torch.Tensor, x: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x_m = torch.clamp(x, min=-self.scale, max=self.scale)
+        assert x_m.min().item() >= -self.scale - 1e-5 and x_m.max().item() <= self.scale + 1e-5, "x_m out of expected range"
         x_m = denormalize(x_m, self.scale)
         x_start = self.decoder(time_feats, t, x_m.float())
         x_start = F.softmax(x_start, 1)
@@ -170,6 +172,8 @@ class EmbryoPhase1Diffusion(nn.Module):
             x_return = x_start.clone()
             if time_next < 0:
                 x_time = x_start
+                if valid_mask is not None:
+                    x_time = x_time * valid_mask
                 continue
             alpha = self.alphas_cumprod[time]
             alpha_next = self.alphas_cumprod[time_next]
@@ -179,6 +183,8 @@ class EmbryoPhase1Diffusion(nn.Module):
             if sigma > 0:
                 x_time = x_time + sigma * torch.randn_like(x_time, device=self.device)
             x_time = torch.clamp(x_time, min=-self.scale, max=self.scale)
+            if valid_mask is not None:
+                x_time = x_time * valid_mask  # re-zero invalid frames each step
         x_return = denormalize(x_return, self.scale)
         if valid_mask is not None:
             x_return = x_return * valid_mask

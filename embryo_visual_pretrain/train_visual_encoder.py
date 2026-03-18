@@ -35,6 +35,7 @@ import torch.nn.functional as F
 import yaml
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 from tqdm import tqdm
 
 import sys
@@ -674,20 +675,139 @@ def train(
     print("Best val score:", best_score, "checkpoint:", best_ckpt)
 
 
+def extract(
+    cfg_path: str | Path,
+    checkpoint_path: str | Path,
+    output_dir: str | Path,
+    device: torch.device,
+    batch_size: int = 32,
+) -> None:
+    """
+    Extract per-frame 128-d embeddings for all patients and save as {patient_id}.npy of shape (T, 128).
+    Uses actual time in hours from padded CSV for FiLM conditioning.
+    """
+    cfg = load_config(cfg_path)
+    from embryo_phase1.dataset_embryo import get_embryo_splits
+    from embryo_phase2.dataset_embryo_phase2 import get_patient_image_paths
+
+    padded_csv_dir = Path(cfg["output_dir"]) / cfg.get("padded_reference_subdir", "padded_reference_csvs")
+    images_root = Path(cfg.get("images_root", Path(cfg["data_root"]) / "embryo_dataset_F0"))
+    stage_names = cfg["stage_names"]
+    num_classes = len(stage_names)
+    if stage_names and stage_names[-1] == "tHB":
+        num_classes_pretrain = num_classes - 1
+    else:
+        num_classes_pretrain = num_classes
+
+    train_ids, val_ids = get_embryo_splits(
+        padded_csv_dir,
+        val_ratio=cfg.get("val_ratio", 0.15),
+        seed=cfg.get("seed", 42),
+        splits_dir=cfg.get("splits_dir"),
+    )
+    patient_list = train_ids + val_ids
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    resize = transforms.Resize((224, 224))
+    normalize_tf = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+    model = VisualEncoder(num_classes=num_classes_pretrain, device=device, dropout_p=0.0)
+    ckpt = torch.load(Path(checkpoint_path), map_location="cpu", weights_only=True)
+    ckpt_filtered = {k: v for k, v in ckpt.items() if not k.startswith("classifier.") and not k.startswith("reconstruct.")}
+    model.load_state_dict(ckpt_filtered, strict=False)
+    model.to(device)
+    model.eval()
+
+    for pid in tqdm(patient_list, desc="Extract embeddings"):
+        image_paths, T, time_q = get_patient_image_paths(pid, padded_csv_dir, images_root, stage_names)
+        if T == 0:
+            continue
+        flat_imgs = []
+        flat_times = []
+        flat_t_idx = []
+        for t, p in enumerate(image_paths):
+            if not p:
+                continue
+            try:
+                img = Image.open(p)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                img = transforms.functional.to_tensor(img)
+                img = resize(img)
+                flat_imgs.append(img)
+                flat_times.append(float(time_q[t]) if not np.isnan(time_q[t]) else 0.0)
+                flat_t_idx.append(t)
+            except Exception:
+                continue
+        if not flat_imgs:
+            out = np.zeros((T, 128), dtype=np.float32)
+            np.save(out_dir / f"{pid}.npy", out)
+            continue
+        x = torch.stack(flat_imgs, dim=0).to(device)
+        x = normalize_tf(x)
+        time_h = torch.tensor(flat_times, dtype=torch.float32, device=device)
+        out = np.zeros((T, 128), dtype=np.float32)
+        for start in range(0, len(flat_imgs), batch_size):
+            end = min(start + batch_size, len(flat_imgs))
+            x_b = x[start:end]
+            t_b = time_h[start:end]
+            emb, _, _ = model(x_b, t_b)
+            emb = emb.cpu().numpy()
+            for j in range(end - start):
+                t = flat_t_idx[start + j]
+                out[t, :] = emb[j, :]
+        np.save(out_dir / f"{pid}.npy", out)
+
+    print("Extract done. Embeddings saved to:", out_dir)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Train embryo visual encoder (Phase A).")
+    parser = argparse.ArgumentParser(description="Train embryo visual encoder (Phase A) or extract embeddings.")
     parser.add_argument(
         "--config",
         type=str,
         default=str(Path(__file__).resolve().parent / "visual_pretrain_config.yaml"),
     )
     parser.add_argument("--device", type=int, default=-1)
+    parser.add_argument(
+        "--extract",
+        action="store_true",
+        help="Extract per-patient embeddings to .npy (T, 128) instead of training.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Path to checkpoint (required when --extract).",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Where to save .npy files when --extract; default: result_dir_visual/extracted",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help="Batch size for extraction (default 32).",
+    )
     args = parser.parse_args()
 
     if args.device >= 0:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train(args.config, device)
+
+    if args.extract:
+        cfg = load_config(args.config)
+        ckpt = args.checkpoint or str(Path(cfg.get("result_dir_visual", "result_visual_pretrain")) / "best_visual_encoder.pt")
+        if not Path(ckpt).exists():
+            raise FileNotFoundError(f"Checkpoint not found: {ckpt}. Pass --checkpoint or train first.")
+        out_dir = args.output_dir or str(Path(cfg.get("result_dir_visual", "result_visual_pretrain")) / "extracted")
+        extract(args.config, ckpt, out_dir, device, batch_size=args.batch_size)
+    else:
+        train(args.config, device)
 
 
 if __name__ == "__main__":

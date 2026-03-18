@@ -11,6 +11,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 from tqdm import tqdm
@@ -104,11 +105,14 @@ def main():
     encoder.eval()
 
     for pid in tqdm(patient_list, desc="Precompute custom visual"):
-        image_paths, T = get_patient_image_paths(pid, padded_csv_dir, images_root, stage_names)
+        image_paths, T, time_q = get_patient_image_paths(pid, padded_csv_dir, images_root, stage_names)
         if T == 0:
             continue
+        # Pass actual hours for FiLM (NaN -> 0)
+        time_arr = np.nan_to_num(time_q, nan=0.0, copy=True).astype(np.float32)
+        time_series = torch.from_numpy(time_arr).view(1, 1, T)
         with torch.no_grad():
-            vis = encoder(images=[image_paths], target_T=T)
+            vis = encoder(images=[image_paths], target_T=T, time_series=time_series)
         feats = vis[0].cpu()
         torch.save(feats, out_dir / f"{pid}_custom.pt")
 

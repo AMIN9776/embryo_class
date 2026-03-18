@@ -67,7 +67,7 @@ lr_scheduler:
 # Loss weights (start with CE only; enable others for ablations)
 ce_weight: 1.0
 supcon_weight: 0.5
-recon_weight: 0.5
+recon_weight: 0.1
 
 # Where to save visual pretrain results and best checkpoint
 result_dir_visual: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain"

@@ -123,6 +123,7 @@ def main():
     custom_ckpt = cfg.get("custom_encoder_checkpoint")
     if custom_ckpt:
         custom_ckpt = Path(custom_ckpt)
+    fusion_dim = int(cfg.get("fusion_dim", 128))
     model = EmbryoPhase2Diffusion(
         time_encoder_output_dim=time_encoder_dim,
         decoder_params=decoder_params,
@@ -134,6 +135,7 @@ def main():
         femi_model_name=cfg.get("femi_model_name", "ihlab/FEMI"),
         femi_freeze=bool(cfg.get("femi_freeze", True)),
         custom_encoder_checkpoint=custom_ckpt,
+        fusion_dim=fusion_dim,
     )
 
     result_dir = Path(cfg["result_dir"]) / cfg.get("naming", "phase2")

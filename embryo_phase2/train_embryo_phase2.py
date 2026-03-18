@@ -250,6 +250,7 @@ def main():
             "visual_encoder_type is 'custom' but custom_encoder_checkpoint is not set; using FEMI encoder.",
             UserWarning,
         )
+    fusion_dim = int(cfg.get("fusion_dim", 128))
     model = EmbryoPhase2Diffusion(
         time_encoder_output_dim=time_encoder_dim,
         decoder_params=decoder_params,
@@ -261,6 +262,7 @@ def main():
         femi_model_name=cfg.get("femi_model_name", "ihlab/FEMI"),
         femi_freeze=bool(cfg.get("femi_freeze", True)),
         custom_encoder_checkpoint=custom_ckpt,
+        fusion_dim=fusion_dim,
     )
     model.to(device)
     print("Model parameters:", sum(p.numel() for p in model.parameters()))
