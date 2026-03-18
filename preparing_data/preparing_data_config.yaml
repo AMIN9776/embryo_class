@@ -1,0 +1,55 @@
+# Embryo data preparation configuration
+# Paths (absolute or relative to this config file)
+
+data_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2"
+selected_patients_file: "selected_patients.json"
+annotations_subdir: "embryo_dataset_annotations"
+time_elapsed_subdir: "embryo_dataset_time_elapsed"
+# Image root (optional, for reference; images may be in a different location)
+#images_root: "/home/nabizadz/Projects/Nabizadeh/GomezData/embryo_dataset_F0"
+images_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/embryo_dataset_F0"
+
+# Output
+output_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations"
+reference_csv_subdir: "reference_csvs"   # per-patient CSVs under output_dir
+metadata_filename: "metadata.json"
+
+# Embryo stages: canonical order for one-hot columns (1..16)
+# Any stage in annotations not in this list will be skipped or mapped if you add fallback
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+
+# CSV formats
+phases_csv_has_header: false
+time_elapsed_csv_has_header: true
+# Column names when header is present (time elapsed)
+time_elapsed_frame_col: "frame_index"
+time_elapsed_time_col: "time"
+
+# Quantization (for quantize_reference_data.py)
+quantization_step_hours: 0.2
+quantization_start_hours: 0.0
+quantized_reference_subdir: "quantized_reference_csvs"
+
+# Padded reference (same number of rows per patient; starting/ending stage)
+padded_reference_subdir: "padded_reference_csvs"
+
+# Plotting
+plot_output_subdir: "patient_plots"
+default_num_patients_to_plot: 5
+plot_seed: 42

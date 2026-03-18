@@ -1,0 +1,73 @@
+# Embryo Phase1: time-series conditioned diffusion on 16 stages (valid only)
+
+# Data (padded CSVs from preparing_data)
+padded_csv_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations/padded_reference_csvs"
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+val_ratio: 0.15
+seed: 42
+# If set, load train/val from splits_dir/training_set.json and validation_set.json
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
+# Class weights for CE: "inverse" (1/count), "sqrt_inverse" (1/sqrt(count)), or null
+# With inverse, rare (e.g. t3) get high weight → over-predicted; frequent (t8, t4, t9+) get low → under-predicted. Narrow clamp to rebalance.
+use_class_weights: "inverse"
+# Clamp: higher min = frequent classes (t8, t4, t9+) matter more; lower max = rare (t3) less dominant (null = no clamp)
+class_weight_min: 0.85
+class_weight_max: 2.0
+# Evaluation: exclude tHB from metrics (report 15 stages)
+exclude_tHB_from_eval: true
+# Number of DDIM seeds to average at validation (1 = single seed)
+num_ddim_seeds: 3
+
+# Model
+time_encoder_output_dim: 64
+decoder_params:
+  num_layers: 6
+  num_f_maps: 32
+  time_emb_dim: 128
+  kernel_size: 5
+  dropout_rate: 0.1
+diffusion_params:
+  timesteps: 100
+  sampling_timesteps: 25
+  ddim_sampling_eta: 1.0
+  snr_scale: 0.5
+
+# Training
+batch_size: 1
+learning_rate: 0.0005
+weight_decay: 1.0e-6
+num_epochs: 500
+log_freq: 5  # set to 1 for quick debug
+loss_weights:
+  decoder_ce_loss: 1.0
+  decoder_mse_loss: 0.1
+
+# Learning rate scheduler (set to null to disable)
+lr_scheduler:
+  type: "ReduceLROnPlateau"  # or "CosineAnnealingLR", "StepLR", null
+  mode: "min"                # for ReduceLROnPlateau: "min" (val_loss) or "max" (val_f1)
+  factor: 0.5                # ReduceLROnPlateau: new_lr = lr * factor
+  patience: 10               # ReduceLROnPlateau: epochs to wait before reducing
+  min_lr: 1.0e-6             # ReduceLROnPlateau: lower bound
+  # StepLR (if type: StepLR): step_size, gamma
+  # CosineAnnealingLR (if type: CosineAnnealingLR): T_max (epochs), eta_min
+
+# Output
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase1"
+naming: "phase1_time_only"
