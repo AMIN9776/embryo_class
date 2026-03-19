@@ -1,0 +1,97 @@
+# ============================================================
+# Embryo Transformer v7: fine-tuned DINOv2-large features (1024-d)
+# ============================================================
+# v4 (no weights, 768-d frozen DINOv2-base):  macro F1=61.48  ← best transformer so far
+# v6 (no weights, 2048-d frozen DINOv2-large): macro F1≈59    ← frozen large didn't help
+#
+# v7 uses fine-tuned DINOv2-large features from train_visual_encoder_v2.py:
+#   - DINOv2-large (1024-d CLS only, no patches)
+#   - Last 4 transformer blocks fine-tuned on embryo classification + contrastive loss
+#   - CLAHE + minmax preprocessing during feature extraction
+#   - No 128-d bottleneck
+#
+# Features precomputed by:
+#   python embryo_visual_pretrain/train_visual_encoder_v2.py \
+#       --config embryo_visual_pretrain/visual_pretrain_config_v2.yaml \
+#       --extract --output_dir result_visual_pretrain_v3/extracted --device 0
+#
+# Class weights: none (best result in v4)
+# Everything else identical to v4.
+
+# ── Data ────────────────────────────────────────────────────
+padded_csv_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations/padded_reference_csvs"
+images_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/embryo_dataset_F0"
+
+precomputed_custom_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain_v3/extracted"
+
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
+val_ratio: 0.15
+seed: 42
+
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+
+exclude_tHB_from_eval: true
+
+# ── Model ────────────────────────────────────────────────────
+visual_input_dim: 1024    # fine-tuned DINOv2-large CLS token
+d_model: 512
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.3
+max_time_hours: 160.0
+
+# ── Masked Stage Prediction (MSP) ────────────────────────────
+use_msp: true
+msp_mask_prob: 0.25
+msp_bert_schedule: true
+
+# ── Monotonic decoding (inference only) ──────────────────────
+use_monotonic_decoding: false
+
+# ── Class weights ─────────────────────────────────────────────
+use_class_weights: null     # no weights (best in v4)
+class_weight_min: 0.5
+class_weight_max: 3.0
+
+# ── Loss (identical to v4) ────────────────────────────────────
+ce_weight: 1.0
+msp_weight: 1.0
+monotonicity_weight: 0.3
+smoothness_weight: 0.05
+
+focal_gamma: 1.0
+label_smoothing: 0.1
+
+# ── Training (identical to v4) ────────────────────────────────
+batch_size: 4
+learning_rate: 0.0001
+weight_decay: 1.0e-4
+num_epochs: 300
+warmup_epochs: 10
+log_freq: 5
+
+lr_scheduler:
+  type: "CosineAnnealingLR"
+  T_max: 300
+  eta_min: 1.0e-6
+
+# ── Output ───────────────────────────────────────────────────
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_transformer"
+naming: "transformer_v7"

@@ -1,0 +1,88 @@
+# ============================================================
+# Embryo Transformer v2: stronger regularisation to fix overfitting
+# ============================================================
+# v1 peaked at epoch 30 (F1=46.53) then declined → clear overfitting.
+# Changes vs v1:
+#   dropout          0.1  → 0.2   (more noise in attention + classifier)
+#   weight_decay     1e-5 → 1e-4  (L2 penalises large weights harder)
+#   label_smoothing  0.0  → 0.1   (softens overconfident predictions)
+#   msp_mask_prob    0.20 → 0.25  (harder self-supervised task)
+#   T_max            200  → 250   (cosine decay stretches to match training)
+
+# ── Data ────────────────────────────────────────────────────
+padded_csv_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations/padded_reference_csvs"
+
+# Precomputed 128-dim custom features (shape per file: 128 × 743)
+precomputed_custom_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_v2/custom_precomputed_fixed"
+
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
+val_ratio: 0.15
+seed: 42
+
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+
+exclude_tHB_from_eval: true
+
+# ── Model ────────────────────────────────────────────────────
+visual_input_dim: 128     # dim of precomputed custom features
+d_model: 256              # transformer hidden dim
+n_heads: 8                # attention heads (d_model must be divisible by n_heads)
+n_layers: 6               # transformer encoder layers
+d_ff: 512                 # feedforward dim inside each layer
+dropout: 0.2              # ↑ was 0.1
+max_time_hours: 160.0     # used to normalise sinusoidal time embedding
+
+# ── Masked Stage Prediction (MSP) ────────────────────────────
+use_msp: true
+msp_mask_prob: 0.25       # ↑ was 0.20 — harder self-supervised task
+msp_bert_schedule: true   # 80% mask-token, 10% random feat, 10% keep-as-is
+
+# ── Monotonic decoding (inference only) ──────────────────────
+use_monotonic_decoding: false
+
+# ── Class weights ─────────────────────────────────────────────
+use_class_weights: "inverse"
+class_weight_min: 0.5
+class_weight_max: 3.0
+
+# ── Loss ──────────────────────────────────────────────────────
+ce_weight: 1.0
+msp_weight: 1.0
+monotonicity_weight: 0.3
+smoothness_weight: 0.05
+
+focal_gamma: 1.0
+label_smoothing: 0.1      # ↑ was 0.0 — prevents overconfident predictions
+
+# ── Training ──────────────────────────────────────────────────
+batch_size: 4
+learning_rate: 0.0001
+weight_decay: 1.0e-4      # ↑ was 1e-5
+num_epochs: 300
+warmup_epochs: 10
+log_freq: 5
+
+lr_scheduler:
+  type: "CosineAnnealingLR"
+  T_max: 250              # ↑ was 200 — slower cosine decay
+  eta_min: 1.0e-6
+
+# ── Output ────────────────────────────────────────────────────
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_transformer"
+naming: "transformer_v2"

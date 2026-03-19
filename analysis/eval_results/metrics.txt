@@ -1,0 +1,10 @@
+model_type : diffusion
+checkpoint : /home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_dinov2/phase2_finetuned/best_model.pt
+val_patients: 94
+
+Top-1 Accuracy : 74.21%
+Top-2 Accuracy : 87.68%
+Macro F1       : 64.62%
+F1@10          : 78.11
+F1@25          : 71.89
+F1@50          : 60.90

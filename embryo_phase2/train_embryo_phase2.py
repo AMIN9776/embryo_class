@@ -67,6 +67,7 @@ def compute_val_loss(
     ce_criterion: nn.Module,
     mse_criterion: nn.Module,
     ordinal_loss_weight: float = 0.0,
+    monotonicity_loss_weight: float = 0.0,
 ) -> float:
     model.eval()
     total_loss = 0.0
@@ -84,6 +85,7 @@ def compute_val_loss(
                 decoder_ce_criterion=ce_criterion,
                 decoder_mse_criterion=mse_criterion,
                 ordinal_loss_weight=ordinal_loss_weight,
+                monotonicity_loss_weight=monotonicity_loss_weight,
             )
             loss = (
                 loss_weights["decoder_ce_loss"] * loss_dict["decoder_ce_loss"]
@@ -91,6 +93,8 @@ def compute_val_loss(
             )
             if ordinal_loss_weight > 0.0 and "decoder_ordinal_loss" in loss_dict:
                 loss = loss + ordinal_loss_weight * loss_dict["decoder_ordinal_loss"]
+            if monotonicity_loss_weight > 0.0 and "monotonicity_loss" in loss_dict:
+                loss = loss + monotonicity_loss_weight * loss_dict["monotonicity_loss"]
             total_loss += loss.item()
             n += 1
     return total_loss / max(n, 1)
@@ -251,6 +255,7 @@ def main():
             UserWarning,
         )
     fusion_dim = int(cfg.get("fusion_dim", 128))
+    modality_dropout_p = float(cfg.get("modality_dropout_p", 0.0))
     model = EmbryoPhase2Diffusion(
         time_encoder_output_dim=time_encoder_dim,
         decoder_params=decoder_params,
@@ -263,6 +268,7 @@ def main():
         femi_freeze=bool(cfg.get("femi_freeze", True)),
         custom_encoder_checkpoint=custom_ckpt,
         fusion_dim=fusion_dim,
+        modality_dropout_p=modality_dropout_p,
     )
     model.to(device)
     print("Model parameters:", sum(p.numel() for p in model.parameters()))
@@ -283,6 +289,7 @@ def main():
     loss_cfg = cfg.get("loss_config", {}) or {}
     ce_type = loss_cfg.get("ce_type", "original")  # "original" or "focal"
     ordinal_loss_weight = float(loss_cfg.get("ordinal_loss_weight", 0.0))
+    monotonicity_loss_weight = float(loss_cfg.get("monotonicity_loss_weight", 0.0))
 
     # Scheduler
     scheduler = None
@@ -347,6 +354,7 @@ def main():
                 decoder_ce_criterion=ce_criterion,
                 decoder_mse_criterion=mse_criterion,
                 ordinal_loss_weight=ordinal_loss_weight,
+                monotonicity_loss_weight=monotonicity_loss_weight,
             )
             loss = (
                 loss_weights["decoder_ce_loss"] * loss_dict["decoder_ce_loss"]
@@ -354,6 +362,8 @@ def main():
             )
             if ordinal_loss_weight > 0.0 and "decoder_ordinal_loss" in loss_dict:
                 loss = loss + ordinal_loss_weight * loss_dict["decoder_ordinal_loss"]
+            if monotonicity_loss_weight > 0.0 and "monotonicity_loss" in loss_dict:
+                loss = loss + monotonicity_loss_weight * loss_dict["monotonicity_loss"]
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -372,6 +382,7 @@ def main():
                 ce_criterion,
                 mse_criterion,
                 ordinal_loss_weight=ordinal_loss_weight,
+                monotonicity_loss_weight=monotonicity_loss_weight,
             )
             exclude_ix = 15 if exclude_tHB_eval else None
             num_seeds = int(cfg.get("num_ddim_seeds", 1))

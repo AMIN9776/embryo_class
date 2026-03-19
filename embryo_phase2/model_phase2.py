@@ -200,6 +200,28 @@ class VisualEncoderCustom(nn.Module):
         return out
 
 
+class FiLMFusion(nn.Module):
+    """
+    FiLM-based fusion: time features modulate visual features.
+    time_feats (B, D_t, T) predict gamma and beta that scale/shift vis_feats (B, D_v, T).
+    Output is optionally projected to out_dim.
+    """
+
+    def __init__(self, time_dim: int, vis_dim: int, out_dim: int):
+        super().__init__()
+        self.film_gamma = nn.Conv1d(time_dim, vis_dim, 1)
+        self.film_beta = nn.Conv1d(time_dim, vis_dim, 1)
+        self.proj = nn.Conv1d(vis_dim, out_dim, 1) if out_dim != vis_dim else None
+
+    def forward(self, time_feats: torch.Tensor, vis_feats: torch.Tensor) -> torch.Tensor:
+        gamma = self.film_gamma(time_feats)  # (B, D_v, T)
+        beta = self.film_beta(time_feats)    # (B, D_v, T)
+        out = (1.0 + gamma) * vis_feats + beta
+        if self.proj is not None:
+            out = self.proj(out)
+        return out
+
+
 class EmbryoPhase2Diffusion(nn.Module):
     """
     Diffusion over 16 stages conditioned on time + visual features (FEMI or custom encoder).
@@ -220,9 +242,11 @@ class EmbryoPhase2Diffusion(nn.Module):
         femi_freeze: bool = True,
         custom_encoder_checkpoint: str | Path | None = None,
         fusion_dim: int | None = None,
+        modality_dropout_p: float = 0.0,
     ):
         super().__init__()
         self.device = device
+        self.modality_dropout_p = modality_dropout_p
         self.num_classes = num_classes
         self.num_timesteps = int(diffusion_params["timesteps"])
         self.sampling_timesteps = diffusion_params["sampling_timesteps"]
@@ -243,10 +267,10 @@ class EmbryoPhase2Diffusion(nn.Module):
         posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
         self.register_buffer("posterior_variance", posterior_variance)
 
-        # Encoders and fusion (fusion_dim from config; fallback to decoder_params or time_encoder_output_dim)
+        # Encoders and fusion (fusion_dim from config; fallback to visual_feature_dim)
         if fusion_dim is None:
-            fusion_dim = int(decoder_params.get("input_dim", time_encoder_output_dim))
-        self.fusion = nn.Conv1d(time_encoder_output_dim + visual_feature_dim, fusion_dim, kernel_size=1)
+            fusion_dim = visual_feature_dim
+        self.fusion = FiLMFusion(time_dim=time_encoder_output_dim, vis_dim=visual_feature_dim, out_dim=fusion_dim)
 
         self.time_encoder = TimeEncoder(time_encoder_output_dim)
         enc_type = (visual_encoder_type or "femi").lower()
@@ -342,8 +366,12 @@ class EmbryoPhase2Diffusion(nn.Module):
             )
             self._debug_shapes_printed = True
 
-        fused = torch.cat([time_feats, vis_feats], dim=1)
-        fused = self.fusion(fused)
+        if self.training and self.modality_dropout_p > 0.0:
+            B = time_feats.shape[0]
+            keep = (torch.rand(B, 1, 1, device=self.device) > self.modality_dropout_p).float()
+            vis_feats = vis_feats * keep
+
+        fused = self.fusion(time_feats, vis_feats)
         return fused
 
     def forward(self, cond_feats: torch.Tensor, t: torch.Tensor, event_diffused: torch.Tensor) -> torch.Tensor:
@@ -369,6 +397,7 @@ class EmbryoPhase2Diffusion(nn.Module):
         decoder_ce_criterion: nn.Module,
         decoder_mse_criterion: nn.Module,
         ordinal_loss_weight: float = 0.0,
+        monotonicity_loss_weight: float = 0.0,
     ) -> dict[str, torch.Tensor]:
         cond_feats = self._encode_condition(time_series, image_paths)
         event_diffused, noise, t = self.prepare_targets(event_gt, valid_mask)
@@ -394,6 +423,17 @@ class EmbryoPhase2Diffusion(nn.Module):
             "decoder_ce_loss": decoder_ce_loss,
             "decoder_mse_loss": decoder_mse_loss,
         }
+        # Optional monotonicity loss: penalise backward stage transitions
+        if monotonicity_loss_weight and monotonicity_loss_weight > 0.0:
+            probs = F.softmax(event_out, dim=1)  # (B, C, T)
+            class_idx = torch.arange(self.num_classes, device=event_out.device, dtype=probs.dtype)
+            expected_idx = (probs * class_idx[None, :, None]).sum(dim=1)  # (B, T)
+            delta = expected_idx[:, 1:] - expected_idx[:, :-1]           # (B, T-1)
+            mono_loss = F.relu(-delta)                                     # only penalise negatives
+            vm = valid_mask.squeeze(1)[:, 1:]                             # (B, T-1)
+            mono_loss = (mono_loss * vm).sum() / vm.sum().clamp(min=1.0)
+            out_dict["monotonicity_loss"] = mono_loss
+
         # Optional ordinal loss on stage index (encodes ordering)
         if ordinal_loss_weight and ordinal_loss_weight > 0.0:
             with torch.no_grad():

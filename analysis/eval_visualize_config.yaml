@@ -1,0 +1,42 @@
+# ── Model ─────────────────────────────────────────────────────────────────────
+model_type: "diffusion"          # "transformer" or "diffusion"
+model_config: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/embryo_phase2/config_embryo_phase2_finetuned.yaml"
+checkpoint: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_dinov2/phase2_finetuned/best_model.pt"             # null → auto (result_dir/naming/best_model.pt)
+device: 0
+
+# Transformer options
+monotonic_decoding: true           # apply Viterbi monotonic decoding (transformer only)
+
+# Diffusion options
+num_ddim_seeds: 3                  # DDIM seeds to average (diffusion only)
+
+# ── Evaluation / patient selection ────────────────────────────────────────────
+n_patients: 5                      # number of random patients to visualise
+random_seed: 42
+
+# ── Timeline plot ─────────────────────────────────────────────────────────────
+show_padding_stages: false         # if false, hide starting/ending padding regions
+time_axis_step: 5                  # x-axis tick step in hours
+figsize_per_patient: [14, 0.7]     # [width, height per row] — vertical layout
+
+# ── Stage colours (default: distinct 15-colour palette) ───────────────────────
+stage_colors:
+  tPB2: "#247cbf"
+  tPNa: "#bf5824"
+  tPNf: "#24bf77"
+  t2:   "#bf3124"
+  t3:   "#8924bf"
+  t4:   "#945b1b"
+  t5:   "#c860d1"
+  t6:   "#707070"
+  t7:   "#d6c420"
+  t8:   "#20d6a9"
+  t9+:  "#95ede4"
+  tM:   "#eba763"
+  tSB:  "#abedac"
+  tB:   "#edabab"
+  tEB:  "#9087e8"
+  tHB:  "#5e5e5e"
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output_dir: "analysis/eval_results"

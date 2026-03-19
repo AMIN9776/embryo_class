@@ -1,0 +1,102 @@
+# Embryo Phase2 DINOv2 — no class weights (experiment)
+#
+# Identical to config_embryo_phase2_dinov2.yaml except:
+#   use_class_weights: null   (was "inverse" min=0.85, max=1.5)
+#
+# Motivation: Transformer v4 (no weights) beat v3 (weights) by +0.71 macro F1.
+# Testing whether the same holds for the diffusion model.
+
+# ── Data ────────────────────────────────────────────────────
+padded_csv_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations/padded_reference_csvs"
+
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+
+images_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/embryo_dataset_F0"
+
+# ── Visual encoder ───────────────────────────────────────────
+visual_encoder_type: "custom"
+custom_encoder_checkpoint: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain_v2/best_visual_encoder.pt"
+precomputed_custom_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_transformer/dinov2_precomputed"
+precomputed_femi_dir:
+
+# ── Splits ───────────────────────────────────────────────────
+val_ratio: 0.15
+seed: 42
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
+
+# ── Class weights / eval ─────────────────────────────────────
+use_class_weights: null     # ↓ disabled (baseline had "inverse" min=0.85, max=1.5)
+class_weight_min: 0.85
+class_weight_max: 1.5
+exclude_tHB_from_eval: true
+num_ddim_seeds: 3
+
+# ── Modality dropout ─────────────────────────────────────────
+modality_dropout_p: 0.25
+
+# ── Time encoder ─────────────────────────────────────────────
+time_encoder_output_dim: 64
+time_normalization: "false"
+
+# ── Visual / fusion ──────────────────────────────────────────
+femi_model_name: "ihlab/FEMI"
+femi_freeze: true
+visual_feature_dim: 768
+fusion_dim: 256
+
+# ── Decoder ──────────────────────────────────────────────────
+decoder_params:
+  num_layers: 6
+  num_f_maps: 128
+  time_emb_dim: 128
+  kernel_size: 3
+  dropout_rate: 0.1
+
+# ── Diffusion ────────────────────────────────────────────────
+diffusion_params:
+  timesteps: 100
+  sampling_timesteps: 25
+  ddim_sampling_eta: 1.0
+  snr_scale: 0.5
+
+# ── Training ─────────────────────────────────────────────────
+batch_size: 1
+learning_rate: 0.0002
+weight_decay: 1.0e-6
+num_epochs: 600
+log_freq: 5
+
+loss_weights:
+  decoder_ce_loss: 1.0
+  decoder_mse_loss: 0.1
+
+loss_config:
+  ce_type: "original"
+  focal_gamma: 1.0
+  ordinal_loss_weight: 0.0
+  monotonicity_loss_weight: 0.25
+
+lr_scheduler:
+  type: "CosineAnnealingLR"
+  T_max: 200
+  eta_min: 1.0e-5
+
+# ── Output ───────────────────────────────────────────────────
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_dinov2"
+naming: "phase2_dinov2_noweights"

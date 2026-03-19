@@ -43,9 +43,33 @@ def build_quantized_rows(
     n_steps = int(round((t_max - t_min) / step))
     grid = [t_min + i * step for i in range(n_steps + 1)]
 
+    t_actual_start = times[0]   # first frame the camera actually recorded
+    t_actual_end   = times[-1]  # last frame the camera actually recorded
+
     quantized: list[dict[str, Any]] = []
     for t_q in grid:
-        # Find index of nearest original time using bisect
+        out: dict[str, Any] = {}
+        out["time_hours_quantized"] = float(f"{t_q:.4f}")
+
+        # Grid point is before recording started → no label (will become starting_stage padding)
+        if t_q < t_actual_start - 1e-9:
+            out["frame"]      = "nan"
+            out["time_hours"] = "nan"
+            for name in stage_names:
+                out[name] = 0
+            quantized.append(out)
+            continue
+
+        # Grid point is after recording ended → no label (will become ending_stage padding)
+        if t_q > t_actual_end + 1e-9:
+            out["frame"]      = "nan"
+            out["time_hours"] = "nan"
+            for name in stage_names:
+                out[name] = 0
+            quantized.append(out)
+            continue
+
+        # Grid point is within the recording window → find nearest actual frame
         pos = bisect_left(times, t_q)
         if pos <= 0:
             idx = 0
@@ -53,17 +77,12 @@ def build_quantized_rows(
             idx = len(times) - 1
         else:
             before = times[pos - 1]
-            after = times[pos]
-            if abs(after - t_q) < abs(t_q - before):
-                idx = pos
-            else:
-                idx = pos - 1
+            after  = times[pos]
+            idx    = pos if abs(after - t_q) < abs(t_q - before) else pos - 1
 
         src = rows[idx]
-        out: dict[str, Any] = {}
-        out["frame"] = int(src["frame"])
+        out["frame"]      = int(src["frame"])
         out["time_hours"] = float(src["time_hours"])
-        out["time_hours_quantized"] = float(f"{t_q:.4f}")
         for name in stage_names:
             out[name] = int(src.get(name, 0))
         quantized.append(out)

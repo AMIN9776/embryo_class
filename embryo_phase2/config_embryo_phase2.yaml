@@ -1,6 +1,6 @@
-# Embryo Phase2: time + visual features (FEMI or custom encoder)
+# Embryo Phase2: time + visual features (custom encoder v2)
 
-# Data (same padded CSVs as Phase 1)
+# Data
 padded_csv_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations/padded_reference_csvs"
 stage_names:
   - tPB2
@@ -20,54 +20,55 @@ stage_names:
   - tEB
   - tHB
 
-# External image root (FEMI input)
+# External image root (used if precomputed features are missing for a patient)
 images_root: "/home/nabizadz/Projects/Nabizadeh/GomezData/embryo_dataset_F0"
 
-# Visual encoder: "femi" (default) or "custom" (pretrained from embryo_visual_pretrain)
+# Visual encoder
 visual_encoder_type: "custom"
 
-# Precomputed FEMI features (optional; used when visual_encoder_type: "femi").
-# Run: python embryo_phase2/precompute_femi.py --config embryo_phase2/config_embryo_phase2.yaml --device 0
-precomputed_femi_dir: /home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_without_class_weights_ordinal_loss_dropout_0.3/custom_precomputed  # e.g. "/path/to/result_embryo_phase2/femi_precomputed"
-# precomputed_femi_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2/femi_precomputed"
+# FEMI precomputed dir — not used when visual_encoder_type is "custom", left blank
+precomputed_femi_dir:
 
-# Custom encoder (used when visual_encoder_type: "custom"): checkpoint and optional precomputed features
-custom_encoder_checkpoint: /home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain/best_visual_encoder.pt  # e.g. "result_visual_pretrain/best_visual_encoder.pt"
-precomputed_custom_dir: /home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2/custom_precomputed      # if set, training loads *_custom.pt; run precompute_custom_visual.py first
+# Custom encoder — v2 checkpoint and precomputed features
+custom_encoder_checkpoint: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain_v2/best_visual_encoder.pt"
+precomputed_custom_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_v2/custom_precomputed_fixed"
 
-# Splits (same JSON files as Phase 1)
+# Splits
 val_ratio: 0.15
 seed: 42
 splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
 
-# Class weights (same scheme as Phase 1)
+# Class weights
 use_class_weights: "inverse"
-# Clamp weights so inverse weighting has effect; set both to 1 to disable weighting
-class_weight_min: 0.8
+class_weight_min: 0.85
 class_weight_max: 1.5
 exclude_tHB_from_eval: true
 num_ddim_seeds: 3
 
+# Modality dropout: randomly zero visual features during training to force sequence reasoning
+# Set to 0.0 to disable (current behaviour), recommended range 0.2–0.3 when enabled
+modality_dropout_p: 0.25
+
 # Time encoder
 time_encoder_output_dim: 64
-# Time normalization mode: "global" (all patients), "per_patient" (each patient 0-1), or "false" (no normalization)
+# Must be "false" for custom encoder — FiLM was trained with absolute hours
 time_normalization: "false"
 
-# Visual / fusion encoder
-# When visual_encoder_type: "femi" — use femi_model_name, femi_freeze; visual_feature_dim typically 512
-# When visual_encoder_type: "custom" — use custom_encoder_checkpoint; visual_feature_dim typically 128
+# Visual / fusion
 femi_model_name: "ihlab/FEMI"
-femi_freeze: true          # keep FEMI frozen when using FEMI
-visual_feature_dim: 128    # 512 for FEMI, 128 for custom (or add projection in model)
-fusion_dim: 128            # fused time+visual dim (input_dim_cross for decoder)
+femi_freeze: true
+visual_feature_dim: 128    # 128 for custom encoder
+fusion_dim: 128            # output dim of fusion conv (time 64 + visual 128 -> 128)
 
-# Decoder / diffusion (same as Phase 1 except timesteps can differ)
+# Decoder — increased capacity vs previous run
 decoder_params:
   num_layers: 6
-  num_f_maps: 32
+  num_f_maps: 64         # was 32 — doubled to use richer fused features
   time_emb_dim: 128
-  kernel_size: 5
-  dropout_rate: 0.1
+  kernel_size: 3
+  dropout_rate: 0.1      # was 0.1 — more regularization to counter overfitting
+
+# Diffusion
 diffusion_params:
   timesteps: 100
   sampling_timesteps: 25
@@ -76,32 +77,27 @@ diffusion_params:
 
 # Training
 batch_size: 1
-learning_rate: 0.0005
+learning_rate: 0.0002
 weight_decay: 1.0e-6
-num_epochs: 1000
+num_epochs: 600
 log_freq: 5
 loss_weights:
   decoder_ce_loss: 1.0
   decoder_mse_loss: 0.1
 
-# Loss configuration (defaults reproduce original setting)
+# Loss config — ordinal loss disabled, lighter focal gamma
 loss_config:
-  ce_type: "focal"        # "original" or "focal"
+  ce_type: "original"
   focal_gamma: 1.0
-  ordinal_loss_weight: 0.1   # >0 to add ordinal loss on stage index
+  ordinal_loss_weight: 0.0        # disabled — was causing t4/t2 collapse in previous run
+  monotonicity_loss_weight: 0.25   # penalise backward stage transitions; recommended 0.2–0.5 when enabled
 
-# lr_scheduler:
-#   type: "ReduceLROnPlateau"
-#   mode: "min"
-#   factor: 0.5
-#   patience: 10
-#   min_lr: 1.0e-6
+# LR scheduler — faster decay to reduce overfitting
 lr_scheduler:
   type: "CosineAnnealingLR"
-  T_max: 400        # usually = num_epochs
-  eta_min: 1.0e-6   # minimum LR at the end of the cosine
+  T_max: 200             # was 400 — single decay over first 200 epochs
+  eta_min: 1.0e-5        # was 1e-6 — higher floor keeps learning signal alive
 
 # Output
-result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_time_plus_custom_encoder"
-naming: "phase2_time_plus_femi"
-
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_phase2_v4"
+naming: "phase2_custom_v4"

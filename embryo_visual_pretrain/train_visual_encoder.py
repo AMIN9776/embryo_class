@@ -116,28 +116,19 @@ def read_phases_intervals(
     return intervals
 
 
-def load_padded_csv_times(padded_csv_dir: Path, pid: str) -> Tuple[np.ndarray, np.ndarray]:
+def load_time_elapsed(data_root: Path, pid: str) -> Dict[int, float]:
     """
-    Load padded CSV to get per-timestep absolute time (hours) and valid mask.
+    Load timeElapsed CSV and return {frame_index: time_hours} mapping.
+    This gives the exact recording time for each frame, regardless of
+    the quantization step used in the padded CSVs.
     """
-    csv_path = padded_csv_dir / f"{pid}_reference_padded.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(csv_path)
-    with csv_path.open("r", newline="") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-    T = len(rows)
-    time_h = np.zeros(T, dtype=np.float32)
-    valid = np.zeros(T, dtype=np.float32)
-    for i, r in enumerate(rows):
-        try:
-            time_h[i] = float(r.get("time_hours", r.get("time_hours_quantized", "0")))
-        except ValueError:
-            time_h[i] = 0.0
-        start_s = int(r.get("starting_stage", 0))
-        end_s = int(r.get("ending_stage", 0))
-        valid[i] = 0.0 if (start_s == 1 or end_s == 1) else 1.0
-    return time_h, valid
+    te_path = data_root / "embryo_dataset_time_elapsed" / f"{pid}_timeElapsed.csv"
+    if not te_path.exists():
+        return {}
+    with te_path.open("r", newline="") as f:
+        rows = list(csv.DictReader(f))
+    return {int(r["frame_index"]): float(r["time"]) for r in rows
+            if r.get("frame_index", "").strip() and r.get("time", "").strip()}
 
 
 class EmbryoVisualDataset(Dataset):
@@ -180,9 +171,9 @@ class EmbryoVisualDataset(Dataset):
             phases_path = ann_dir / f"{pid}_phases.csv"
             if not phases_path.exists():
                 continue
-            try:
-                time_h, valid = load_padded_csv_times(padded_csv_dir, pid)
-            except Exception:
+            # Use timeElapsed CSV for exact per-frame times (avoids quantization step mismatch)
+            te_map = load_time_elapsed(data_root, pid)
+            if not te_map:
                 continue
             frame2img = build_frame_to_image_map(images_root, pid)
             if not frame2img:
@@ -195,14 +186,14 @@ class EmbryoVisualDataset(Dataset):
             for frame, s_idx, _ in intervals:
                 if max_per_stage is not None and per_stage_count[s_idx] >= max_per_stage:
                     continue
-                # Map frame to nearest padded index (here assume frame ~ index)
-                t_idx = min(max(frame, 0), len(time_h) - 1)
-                if valid[t_idx] <= 0.5:
-                    continue
+                # Use exact recording time from timeElapsed CSV
+                actual_time = te_map.get(frame)
+                if actual_time is None:
+                    continue  # frame not in recording
                 img_path = frame2img.get(frame)
                 if img_path is None or not img_path.exists():
                     continue
-                items.append((img_path, float(time_h[t_idx]), s_idx, pid))
+                items.append((img_path, actual_time, s_idx, pid))
                 per_stage_count[s_idx] += 1
 
         self.items = items
@@ -753,7 +744,8 @@ def extract(
             x_b = x[start:end]
             t_b = time_h[start:end]
             emb, _, _ = model(x_b, t_b)
-            emb = emb.cpu().numpy()
+            emb = emb.detach().cpu().numpy()
+            #emb = emb.cpu().numpy()
             for j in range(end - start):
                 t = flat_t_idx[start + j]
                 out[t, :] = emb[j, :]

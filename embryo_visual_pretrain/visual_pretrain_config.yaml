@@ -1,12 +1,10 @@
-# Embryo visual pretraining config (Phase A)
+# Embryo visual pretraining config (Phase A) — improved run
 
-# Reuse data layout from preparing_data_config
 data_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2"
 images_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/embryo_dataset_F0"
 output_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations"
 padded_reference_subdir: "padded_reference_csvs"
 
-# Same stage ordering as DiffAct (tHB will be excluded inside the script)
 stage_names:
   - tPB2
   - tPNa
@@ -25,57 +23,49 @@ stage_names:
   - tEB
   - tHB
 
-# Splits (use same helper as DiffAct)
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
 val_ratio: 0.15
 seed: 42
-splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
 
-# Dataset sampling
-# Global per-stage cap (used as default if train/val-specific caps are not set)
-max_per_stage: 500           # cap frames per stage overall
-# Optional separate caps for train/val; if null, fall back to max_per_stage
-max_per_stage_train: 2000
+# More samples per stage — previous run capped at 2000, push to full dataset
+max_per_stage: 5000
+max_per_stage_train: 5000   # was 2000 — use all available frames
 max_per_stage_val: 500
-frames_per_stage: 5          # how many frames to sample per interval in *_phases.csv
-batch_size: 32
+frames_per_stage: 10        # was 5 — sample more frames per interval
+
+batch_size: 64              # was 32 — larger batches improve SupCon quality
 num_workers: 4
 
 # Optimization
-learning_rate: 0.0003
-weight_decay: 0.001      # stronger regularization
-num_epochs: 200
-warmup_epochs: 5
-min_lr: 1.0e-05
-early_stop_patience: 20
+learning_rate: 0.0002       # slightly lower than before
+weight_decay: 0.001
+num_epochs: 300
+warmup_epochs: 10           # was 5
+min_lr: 1.0e-06
+early_stop_patience: 30     # was 20 — give more time to converge
+
 focal_gamma: 2.0
 
-# Optional clamping for class weights (after normalization)
-class_weight_min: 0.7   # set to null to disable lower bound
-class_weight_max: 3.0   # set to null to disable upper bound
+# Wider class weight range — t5/t6/t7 need more signal
+class_weight_min: 0.5       # was 0.7
+class_weight_max: 4.0       # was 3.0
 
-# LR scheduler for visual pretrain
-# type: "cosine" (warmup + cosine), "step", or "none"
 lr_scheduler:
   type: "cosine"
-  # cosine-specific
-  warmup_epochs: 5
-  min_lr: 1.0e-05
-  # step-specific (used if type == "step")
+  warmup_epochs: 10
+  min_lr: 1.0e-06
   step_size: 50
   gamma: 0.5
 
-# Loss weights (start with CE only; enable others for ablations)
+# Loss weights — increase supcon, keep recon low
 ce_weight: 1.0
-supcon_weight: 0.5
+supcon_weight: 0.8          # was 0.5 — stronger contrastive signal
 recon_weight: 0.1
 
-# Where to save visual pretrain results and best checkpoint
-result_dir_visual: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain"
+result_dir_visual: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain_v2"
 
-# How often (in epochs) to print per-class precision/recall/F1
 metrics_log_freq: 10
 
-# Model / data augmentation
-dropout: 0.3          # dropout before classifier / projection
-augmentation: true    # random crop/flip/brightness during training
-
+# Strong augmentation — critical for t5/t6/t7 which are visually ambiguous
+dropout: 0.3
+augmentation: true

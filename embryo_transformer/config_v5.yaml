@@ -1,0 +1,92 @@
+# ============================================================
+# Embryo Transformer v5: v3 with gentle class weights
+# ============================================================
+# v3 (weights min=0.5, max=3.0): macro F1=60.77
+#   good: t5=34.61, t8=64.97
+#   bad:  t2=86.37, t4=73.78, tSB=61.30, tEB=71.10
+#
+# v4 (no weights): macro F1=61.48
+#   good: t2=90.32, t4=78.57, tSB=72.42, tEB=78.20
+#   bad:  t5=19.98 (-15!), t8=57.49 (-8)
+#
+# v5 uses gentle weights (min=0.7, max=2.0) to get the best of both:
+# enough upweighting for t5/t8/t3 without over-suppressing t2/t4/tSB/tEB.
+# Everything else identical to v3.
+
+# ── Data ────────────────────────────────────────────────────
+padded_csv_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations/padded_reference_csvs"
+images_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/embryo_dataset_F0"
+
+precomputed_custom_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_transformer/dinov2_precomputed"
+
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
+val_ratio: 0.15
+seed: 42
+
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+
+exclude_tHB_from_eval: true
+
+# ── Model (identical to v3) ──────────────────────────────────
+visual_input_dim: 768
+d_model: 512
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.3
+max_time_hours: 160.0
+
+# ── Masked Stage Prediction (MSP) ────────────────────────────
+use_msp: true
+msp_mask_prob: 0.25
+msp_bert_schedule: true
+
+# ── Monotonic decoding (inference only) ──────────────────────
+use_monotonic_decoding: false
+
+# ── Class weights ─────────────────────────────────────────────
+use_class_weights: "inverse"
+class_weight_min: 0.7       # ↑ from 0.5 — less suppression of common stages
+class_weight_max: 2.0       # ↓ from 3.0 — gentler boost for rare stages
+
+# ── Loss (identical to v3) ───────────────────────────────────
+ce_weight: 1.0
+msp_weight: 1.0
+monotonicity_weight: 0.3
+smoothness_weight: 0.05
+
+focal_gamma: 1.0
+label_smoothing: 0.1
+
+# ── Training (identical to v3) ───────────────────────────────
+batch_size: 4
+learning_rate: 0.0001
+weight_decay: 1.0e-4
+num_epochs: 300
+warmup_epochs: 10
+log_freq: 5
+
+lr_scheduler:
+  type: "CosineAnnealingLR"
+  T_max: 300
+  eta_min: 1.0e-6
+
+# ── Output ───────────────────────────────────────────────────
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_transformer"
+naming: "transformer_v5"

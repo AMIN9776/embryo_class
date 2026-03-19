@@ -1,0 +1,109 @@
+# ============================================================
+# Embryo visual pretraining v3 — differential LR + CLAHE-only
+# ============================================================
+# v2 (current best): minmax+clahe, supcon=0.8, single lr=1e-4
+#   → early stopped at ~epoch 9, downstream transformer F1=67.89
+#
+# v3 changes:
+#   preprocessing:         "minmax+clahe" → "clahe"
+#     Reason: minmax destroys inter-frame global intensity variation
+#     that encodes late-stage morphology (blastocyst cavity, etc.)
+#
+#   supcon_weight:         0.8 → 0.3
+#     Reason: high SupCon weight disrupts CE convergence early,
+#     likely causing the epoch-9 early stop in v2
+#
+#   backbone_lr_multiplier: (new) 0.1
+#     → backbone unfrozen blocks: 1e-4 × 0.1 = 1e-5
+#     → heads (proj, classifier, time_film, reconstruct): 1e-4
+#     Reason: DINOv2 blocks were pretrained on 142M images;
+#     aggressive LR destroys their representations
+#
+# Everything else identical to v2.
+# ============================================================
+
+data_root:    "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2"
+images_root:  "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/embryo_dataset_F0"
+output_dir:   "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations"
+padded_reference_subdir: "padded_reference_csvs"
+
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
+val_ratio: 0.15
+seed: 42
+
+# ── Preprocessing ──────────────────────────────────────────────────────────────
+# "clahe" only — keeps global intensity differences between stages intact
+preprocessing: "clahe"
+clahe_clip: 2.0
+clahe_tile: 8
+
+# ── Backbone ───────────────────────────────────────────────────────────────────
+backbone: "dinov2-large"
+unfreeze_last_n_blocks: 4
+embed_dim: null          # no compression → 1024-d output
+use_patches: false
+
+# ── Differential learning rate ─────────────────────────────────────────────────
+# backbone unfrozen blocks → learning_rate × backbone_lr_multiplier = 1e-4 × 0.1 = 1e-5
+# heads (proj, classifier, time_film, reconstruct) → learning_rate = 1e-4
+backbone_lr_multiplier: 0.1
+
+# ── Data sampling (identical to v2) ───────────────────────────────────────────
+max_per_stage: 5000
+max_per_stage_train: 5000
+max_per_stage_val: 500
+frames_per_stage: 10
+
+# ── Training (identical to v2 except supcon_weight) ───────────────────────────
+batch_size: 32
+num_workers: 4
+
+learning_rate: 0.0001
+weight_decay: 0.001
+num_epochs: 300
+warmup_epochs: 10
+min_lr: 1.0e-06
+early_stop_patience: 30
+
+dropout: 0.3
+augmentation: true
+
+focal_gamma: 2.0
+
+class_weight_min: 0.5
+class_weight_max: 4.0
+
+# ── Loss weights ───────────────────────────────────────────────────────────────
+ce_weight: 1.0
+supcon_weight: 0.3    # ↓ from 0.8 — let CE dominate, SupCon refines geometry
+recon_weight: 0.1
+
+# ── LR scheduler (identical to v2) ────────────────────────────────────────────
+lr_scheduler:
+  type: "cosine"
+  warmup_epochs: 10
+  min_lr: 1.0e-06
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+metrics_log_freq: 10
+
+# ── Output ─────────────────────────────────────────────────────────────────────
+result_dir_visual: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_visual_pretrain_v4"

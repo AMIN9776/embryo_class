@@ -1,0 +1,86 @@
+# ============================================================
+# Embryo Transformer v4: v3 with no class weights (experiment)
+# ============================================================
+# v3 used inverse-frequency class weights (min=0.5, max=3.0).
+# v4 disables class weights entirely to test whether the weighting
+# was hurting overall calibration — common stages dominate the loss
+# but the model may learn better-calibrated predictions overall.
+# Everything else is identical to v3.
+
+# ── Data ────────────────────────────────────────────────────
+padded_csv_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/Data_outputs_visualizations/padded_reference_csvs"
+images_root: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/embryo_dataset_F0"
+
+precomputed_custom_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_transformer/dinov2_precomputed"
+
+splits_dir: "/home/nabizadz/Projects/Amin/Embryo/Embryo_data_cropped_applied_on_all_v2/splits"
+val_ratio: 0.15
+seed: 42
+
+stage_names:
+  - tPB2
+  - tPNa
+  - tPNf
+  - t2
+  - t3
+  - t4
+  - t5
+  - t6
+  - t7
+  - t8
+  - t9+
+  - tM
+  - tSB
+  - tB
+  - tEB
+  - tHB
+
+exclude_tHB_from_eval: true
+
+# ── Model (identical to v3) ──────────────────────────────────
+visual_input_dim: 768
+d_model: 512
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.3
+max_time_hours: 160.0
+
+# ── Masked Stage Prediction (MSP) ────────────────────────────
+use_msp: true
+msp_mask_prob: 0.25
+msp_bert_schedule: true
+
+# ── Monotonic decoding (inference only) ──────────────────────
+use_monotonic_decoding: false
+
+# ── Class weights ─────────────────────────────────────────────
+use_class_weights: null     # ↓ disabled (v3 used "inverse" with min=0.5, max=3.0)
+class_weight_min: 0.5
+class_weight_max: 3.0
+
+# ── Loss (identical to v3) ───────────────────────────────────
+ce_weight: 1.0
+msp_weight: 1.0
+monotonicity_weight: 0.3
+smoothness_weight: 0.05
+
+focal_gamma: 1.0
+label_smoothing: 0.1
+
+# ── Training (identical to v3) ───────────────────────────────
+batch_size: 4
+learning_rate: 0.0001
+weight_decay: 1.0e-4
+num_epochs: 300
+warmup_epochs: 10
+log_freq: 5
+
+lr_scheduler:
+  type: "CosineAnnealingLR"
+  T_max: 300
+  eta_min: 1.0e-6
+
+# ── Output ───────────────────────────────────────────────────
+result_dir: "/home/nabizadz/Projects/Amin/Embryo/ASDiffusion_v2/DiffAct/result_embryo_transformer"
+naming: "transformer_v4"
